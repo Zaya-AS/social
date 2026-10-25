@@ -1,12 +1,15 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gitlab.com/zayi-group/go-spirnt1/internal/app"
+	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
 )
 
@@ -28,12 +31,14 @@ type postResponse struct {
 }
 
 type PostHandler struct {
-	service *app.PostService
+	service     *app.PostService
+	likeService *likes.Service
 }
 
-func NewPostHandler(service *app.PostService) *PostHandler {
+func NewPostHandler(service *app.PostService, likeService *likes.Service) *PostHandler {
 	return &PostHandler{
-		service: service,
+		service:     service,
+		likeService: likeService,
 	}
 }
 
@@ -146,7 +151,14 @@ func (h *PostHandler) GetPost(ctx *gin.Context) {
 }
 
 func (h *PostHandler) LikePost(ctx *gin.Context) {
+
 	postID := ctx.Param("id")
+	if postID == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid post id",
+		})
+		return
+	}
 
 	var request likePostRequest
 
@@ -157,31 +169,51 @@ func (h *PostHandler) LikePost(ctx *gin.Context) {
 		return
 	}
 
-	err := h.service.LikePost(request.UserID, postID)
-	if err != nil {
-		if errors.Is(err, app.ErrInvalidLike) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid like data"})
-			return
-		}
-
-		if errors.Is(err, domain.ErrUserNotFound) ||
-			errors.Is(err, domain.ErrPostNotFound) {
-			ctx.JSON(http.StatusNotFound, gin.H{"error": "user or post not found"})
-			return
-		}
-
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to like the post"})
-		return
+	cmd := domain.LikeCommand{
+		CommandID: uuid.NewString(),
+		PostID:    postID,
+		UserID:    request.UserID,
+		CreatedAt: time.Now(),
 	}
 
-	if postID == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid post id",
+	result, err := h.likeService.EnqueueLike(ctx.Request.Context(), cmd)
+	if err != nil {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+
+		if errors.Is(err, likes.ErrQueueFull) ||
+			errors.Is(err, likes.ErrQueueClosed) {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "like processing is unavailable",
+			})
+			return
+		}
+
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to submit like",
 		})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-	})
+	if result.Err != nil {
+		if errors.Is(result.Err, likes.ErrInvalidLike) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid like data"})
+			return
+		}
+
+		if errors.Is(result.Err, domain.ErrUserNotFound) ||
+			errors.Is(result.Err, domain.ErrPostNotFound) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "user or post not found"})
+			return
+		}
+
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to like the post",
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
