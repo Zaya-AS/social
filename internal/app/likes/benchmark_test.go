@@ -7,44 +7,19 @@ import (
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
-	"gitlab.com/zayi-group/go-spirnt1/internal/infra/storage/memory"
-	"gitlab.com/zayi-group/go-spirnt1/internal/queue/inmem"
 )
 
 func BenchmarkLike_Direct(b *testing.B) {
-	userRepo := memory.NewUserRepo()
-	postRepo := memory.NewPostRepo()
-
-	if err := userRepo.Create(&domain.User{
-		ID:       "user-1",
-		Username: "ivan",
-	}); err != nil {
-		b.Fatal(err)
-	}
-
-	if err := postRepo.Create(&domain.Post{
-		ID:       "post-1",
-		AuthorID: "user-1",
-		Text:     "benchmark post",
-	}); err != nil {
-		b.Fatal(err)
-	}
-
-	queue, err := inmem.NewQueue(1)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer queue.Close()
-
-	service := likes.NewService(userRepo, postRepo, queue)
+	fixture := newLikeFixture(b, 1)
+	service := fixture.service
 
 	cmd := domain.LikeCommand{
 		CommandID: "benchmark-command",
-		UserID:    "user-1",
-		PostID:    "post-1",
+		UserID:    fixture.user.ID,
+		PostID:    fixture.post.ID,
 	}
 
-	if result := service.ApplyLike(cmd); result.Err != nil {
+	if result := service.ApplyLike(context.Background(), cmd); result.Err != nil {
 		b.Fatal(result.Err)
 	}
 
@@ -52,41 +27,19 @@ func BenchmarkLike_Direct(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		result := service.ApplyLike(cmd)
+		result := service.ApplyLike(context.Background(), cmd)
 		if result.Err != nil {
 			b.Fatal(result.Err)
 		}
 	}
+	b.StopTimer()
 }
 
 func BenchmarkLike_QueueWorkerPool(b *testing.B) {
-	userRepo := memory.NewUserRepo()
-	postRepo := memory.NewPostRepo()
-
-	if err := userRepo.Create(&domain.User{
-		ID:       "user-1",
-		Username: "ivan",
-	}); err != nil {
-		b.Fatal(err)
-	}
-
-	if err := postRepo.Create(&domain.Post{
-		ID:       "post-1",
-		AuthorID: "user-1",
-		Text:     "benchmark post",
-	}); err != nil {
-		b.Fatal(err)
-	}
-
-	queue, err := inmem.NewQueue(100)
+	fixture := newLikeFixture(b, 100)
+	service := fixture.service
+	pool, err := likes.NewWorkerPool(fixture.queue, service, 4, 5*time.Second)
 	if err != nil {
-		b.Fatal(err)
-	}
-
-	service := likes.NewService(userRepo, postRepo, queue)
-	pool, err := likes.NewWorkerPool(queue, service, 4)
-	if err != nil {
-		queue.Close()
 		b.Fatal(err)
 	}
 
@@ -106,8 +59,8 @@ func BenchmarkLike_QueueWorkerPool(b *testing.B) {
 
 	cmd := domain.LikeCommand{
 		CommandID: "benchmark-command",
-		UserID:    "user-1",
-		PostID:    "post-1",
+		UserID:    fixture.user.ID,
+		PostID:    fixture.post.ID,
 	}
 
 	result, err := service.EnqueueLike(ctx, cmd)

@@ -15,7 +15,7 @@ import (
 	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/config"
 	httpapi "gitlab.com/zayi-group/go-spirnt1/internal/infra/http"
-	"gitlab.com/zayi-group/go-spirnt1/internal/infra/storage/memory"
+	"gitlab.com/zayi-group/go-spirnt1/internal/infra/storage/postgres"
 	"gitlab.com/zayi-group/go-spirnt1/internal/queue/inmem"
 )
 
@@ -37,20 +37,33 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	userRepo := memory.NewUserRepo()
+	connectCtx, cancelConn := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+
+	pool, err := postgres.NewPool(connectCtx, cfg.DatabaseURL)
+	cancelConn()
+
+	if err != nil {
+		return fmt.Errorf("connect PostgreSQL: %w", err)
+	}
+	defer pool.Close()
+
+	userRepo := postgres.NewUserRepository(pool)
 	userService := app.NewUserService(userRepo)
 	userHandler := httpapi.NewUserHandler(userService)
 
-	postRepo := memory.NewPostRepo()
+	postRepo := postgres.NewPostRepository(pool)
 	postService := app.NewPostService(postRepo, userRepo)
-	likeQueue, err := inmem.NewQueue(100)
+	likeQueue, err := inmem.NewQueue(cfg.QueueCapacity)
 	if err != nil {
 		return fmt.Errorf("create like queue: %w", err)
 	}
 
 	likeService := likes.NewService(userRepo, postRepo, likeQueue)
 
-	workerPool, err := likes.NewWorkerPool(likeQueue, likeService, 4)
+	workerPool, err := likes.NewWorkerPool(likeQueue, likeService, cfg.WorkerCount, cfg.LikeExecutionTimeout)
 	if err != nil {
 		return fmt.Errorf("create worker pool: %w", err)
 	}

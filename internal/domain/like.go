@@ -3,14 +3,14 @@ package domain
 import "time"
 
 type Like struct {
-	UserID string
-	PostID string
+	UserID int64
+	PostID int64
 }
 
 type LikeCommand struct {
 	CommandID     string
-	PostID        string
-	UserID        string
+	PostID        int64
+	UserID        int64
 	CorrelationID string
 	RequestID     string
 	CreatedAt     time.Time

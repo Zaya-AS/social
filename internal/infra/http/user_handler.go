@@ -31,7 +31,7 @@ func (h *UserHandler) RegisterUser(ctx *gin.Context) {
 		return
 	}
 
-	user, err := h.service.RegisterUser(request.Username)
+	user, err := h.service.RegisterUser(ctx.Request.Context(), request.Username)
 
 	if err != nil {
 		if errors.Is(err, app.ErrInvalidRegistration) {
@@ -61,7 +61,7 @@ func (h *UserHandler) RegisterUser(ctx *gin.Context) {
 
 func (h *UserHandler) List(ctx *gin.Context) {
 
-	users, err := h.service.List()
+	users, err := h.service.List(ctx.Request.Context())
 
 	if err != nil {
 

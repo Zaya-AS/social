@@ -4,27 +4,40 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
 )
 
-type WorkerPool struct {
-	queue     Queue
-	service   *Service
-	workers   int
-	wg        sync.WaitGroup
-	startOnce sync.Once
-	stopOnce  sync.Once
-	done      chan struct{}
+type LikeExecutor interface {
+	ApplyLike(context.Context, domain.LikeCommand) *domain.LikeResult
 }
 
-func NewWorkerPool(queue Queue, service *Service, worker int) (*WorkerPool, error) {
+type WorkerPool struct {
+	queue            Queue
+	executor         LikeExecutor
+	workers          int
+	wg               sync.WaitGroup
+	startOnce        sync.Once
+	stopOnce         sync.Once
+	done             chan struct{}
+	executionTimeuot time.Duration
+}
+
+func NewWorkerPool(queue Queue, executor LikeExecutor, worker int, executionTimeout time.Duration) (*WorkerPool, error) {
 	if worker < 1 {
 		return nil, errors.New("worker count must be greater than zero")
 	}
+	if executionTimeout <= 0 {
+		return nil, errors.New("execution timeout must be greater than zero")
+	}
+
 	return &WorkerPool{
-		queue:   queue,
-		service: service,
-		workers: worker,
-		done:    make(chan struct{}),
+		queue:            queue,
+		executor:         executor,
+		workers:          worker,
+		executionTimeuot: executionTimeout,
+		done:             make(chan struct{}),
 	}, nil
 }
 
@@ -36,7 +49,13 @@ func (wp *WorkerPool) runWorker() {
 		if err != nil {
 			return
 		}
-		result := wp.service.ApplyLike(job.Command)
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			wp.executionTimeuot,
+		)
+		result := wp.executor.ApplyLike(ctx, job.Command)
+		cancel()
+
 		job.Result <- *result
 	}
 

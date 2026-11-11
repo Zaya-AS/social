@@ -10,39 +10,15 @@ import (
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
-	"gitlab.com/zayi-group/go-spirnt1/internal/infra/storage/memory"
-	"gitlab.com/zayi-group/go-spirnt1/internal/queue/inmem"
 )
 
 func TestWorkerPool_ConcurrentDuplicateLikes(t *testing.T) {
 	const requests = 20
 
-	userRepo := memory.NewUserRepo()
-	postRepo := memory.NewPostRepo()
-
-	if err := userRepo.Create(&domain.User{
-		ID:       "user-1",
-		Username: "ivan",
-	}); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	if err := postRepo.Create(&domain.Post{
-		ID:       "post-1",
-		AuthorID: "user-1",
-		Text:     "test post",
-	}); err != nil {
-		t.Fatalf("create post: %v", err)
-	}
-
-	queue, err := inmem.NewQueue(requests)
-	if err != nil {
-		t.Fatalf("create queue: %v", err)
-	}
-	defer queue.Close()
-
-	service := likes.NewService(userRepo, postRepo, queue)
-	pool, err := likes.NewWorkerPool(queue, service, 4)
+	fixture := newLikeFixture(t, requests)
+	queue := fixture.queue
+	service := fixture.service
+	pool, err := likes.NewWorkerPool(queue, service, 4, 5*time.Second)
 	if err != nil {
 		t.Fatalf("create worker pool: %v", err)
 	}
@@ -73,8 +49,8 @@ func TestWorkerPool_ConcurrentDuplicateLikes(t *testing.T) {
 
 			result, err := service.EnqueueLike(ctx, domain.LikeCommand{
 				CommandID: id,
-				UserID:    "user-1",
-				PostID:    "post-1",
+				UserID:    fixture.user.ID,
+				PostID:    fixture.post.ID,
 				CreatedAt: time.Now(),
 			})
 			if err != nil {
@@ -99,13 +75,7 @@ func TestWorkerPool_ConcurrentDuplicateLikes(t *testing.T) {
 		t.Error(err)
 	}
 
-	post, err := postRepo.GetByID("post-1")
-	if err != nil {
-		t.Fatalf("get post: %v", err)
-	}
-	if len(post.Likes) != 1 {
-		t.Fatalf("expected 1 like, got %d", len(post.Likes))
-	}
+	assertStoredLikes(t, fixture, 2)
 
 	stopCtx, stopCancel := context.WithTimeout(
 		context.Background(), 5*time.Second,
@@ -120,32 +90,10 @@ func TestWorkerPool_ConcurrentDuplicateLikes(t *testing.T) {
 func TestWorkerPool_StopDrainsQueue(t *testing.T) {
 	const commands = 5
 
-	userRepo := memory.NewUserRepo()
-	postRepo := memory.NewPostRepo()
-
-	if err := userRepo.Create(&domain.User{
-		ID:       "user-1",
-		Username: "ivan",
-	}); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	if err := postRepo.Create(&domain.Post{
-		ID:       "post-1",
-		AuthorID: "user-1",
-		Text:     "test post",
-	}); err != nil {
-		t.Fatalf("create post: %v", err)
-	}
-
-	queue, err := inmem.NewQueue(commands)
-	if err != nil {
-		t.Fatalf("create queue: %v", err)
-	}
-	defer queue.Close()
-
-	service := likes.NewService(userRepo, postRepo, queue)
-	pool, err := likes.NewWorkerPool(queue, service, 2)
+	fixture := newLikeFixture(t, commands)
+	queue := fixture.queue
+	service := fixture.service
+	pool, err := likes.NewWorkerPool(queue, service, 2, 5*time.Second)
 	if err != nil {
 		t.Fatalf("create worker pool: %v", err)
 	}
@@ -165,8 +113,8 @@ func TestWorkerPool_StopDrainsQueue(t *testing.T) {
 		job := likes.Job{
 			Command: domain.LikeCommand{
 				CommandID: fmt.Sprintf("cmd-%d", i),
-				UserID:    "user-1",
-				PostID:    "post-1",
+				UserID:    fixture.user.ID,
+				PostID:    fixture.post.ID,
 			},
 			Result: make(chan domain.LikeResult, 1),
 		}

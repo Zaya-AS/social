@@ -3,7 +3,6 @@ package likes
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
 )
@@ -26,26 +25,23 @@ func NewService(userRepo domain.UserRepository, postRepo domain.PostRepository, 
 	}
 }
 
-func (s *Service) ApplyLike(cmd domain.LikeCommand) *domain.LikeResult {
-
-	cmd.PostID = strings.TrimSpace(cmd.PostID)
-	cmd.UserID = strings.TrimSpace(cmd.UserID)
+func (s *Service) ApplyLike(ctx context.Context, cmd domain.LikeCommand) *domain.LikeResult {
 
 	result := &domain.LikeResult{
 		CommandID: cmd.CommandID,
 	}
 
-	if cmd.PostID == "" || cmd.UserID == "" {
+	if cmd.PostID <= 0 || cmd.UserID <= 0 {
 		result.Err = ErrInvalidLike
 		return result
 	}
 
-	if _, err := s.userRepo.GetByID(cmd.UserID); err != nil {
+	if _, err := s.userRepo.GetByID(ctx, cmd.UserID); err != nil {
 		result.Err = err
 		return result
 	}
 
-	result.Err = s.postRepo.LikePost(cmd.UserID, cmd.PostID)
+	result.Err = s.postRepo.LikePost(ctx, cmd.UserID, cmd.PostID)
 	return result
 }
 

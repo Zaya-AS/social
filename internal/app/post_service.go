@@ -1,20 +1,15 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
 )
 
-var (
-	ErrInvalidPost = errors.New("invalid post data")
-	ErrInvalidLike = errors.New("invalid like data")
-)
+var ErrInvalidPost = errors.New("invalid post data")
 
 type PostService struct {
 	postRepo domain.PostRepository
@@ -28,27 +23,23 @@ func NewPostService(postRepo domain.PostRepository, userRepo domain.UserReposito
 	}
 }
 
-func (s *PostService) CreatePost(authorID, text string) (*domain.Post, error) {
-
-	authorID = strings.TrimSpace(authorID)
+func (s *PostService) CreatePost(ctx context.Context, authorID int64, text string) (*domain.Post, error) {
 	text = strings.TrimSpace(text)
 
-	if authorID == "" || text == "" {
+	if authorID <= 0 || text == "" {
 		return nil, ErrInvalidPost
 	}
 
-	if _, err := s.userRepo.GetByID(authorID); err != nil {
-		return nil, fmt.Errorf("not find author: %w", err)
+	if _, err := s.userRepo.GetByID(ctx, authorID); err != nil {
+		return nil, fmt.Errorf("find post author: %w", err)
 	}
 
 	post := &domain.Post{
-		ID:        uuid.NewString(),
-		AuthorID:  authorID,
-		Text:      text,
-		CreatedAt: time.Now(),
+		AuthorID: authorID,
+		Text:     text,
 	}
 
-	err := s.postRepo.Create(post)
+	err := s.postRepo.Create(ctx, post)
 
 	if err != nil {
 		return nil, err
@@ -57,9 +48,9 @@ func (s *PostService) CreatePost(authorID, text string) (*domain.Post, error) {
 	return post, nil
 }
 
-func (s *PostService) GetPost(postID string) (*domain.Post, error) {
+func (s *PostService) GetPost(ctx context.Context, postID int64) (*domain.Post, error) {
 
-	post, err := s.postRepo.GetByID(postID)
+	post, err := s.postRepo.GetByID(ctx, postID)
 
 	if err != nil {
 		return nil, err
@@ -68,35 +59,13 @@ func (s *PostService) GetPost(postID string) (*domain.Post, error) {
 	return post, nil
 }
 
-func (s *PostService) List() ([]*domain.Post, error) {
+func (s *PostService) List(ctx context.Context) ([]*domain.Post, error) {
 
-	posts, err := s.postRepo.List()
+	posts, err := s.postRepo.List(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
 	return posts, nil
-}
-
-func (s *PostService) LikePost(userID, postID string) error {
-
-	userID = strings.TrimSpace(userID)
-	postID = strings.TrimSpace(postID)
-
-	if userID == "" || postID == "" {
-		return ErrInvalidLike
-	}
-
-	if _, err := s.userRepo.GetByID(userID); err != nil {
-		return fmt.Errorf("find user for like: %w", err)
-	}
-
-	err := s.postRepo.LikePost(userID, postID)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

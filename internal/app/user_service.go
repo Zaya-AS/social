@@ -1,13 +1,12 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
-
-	"github.com/google/uuid"
 )
 
 var (
@@ -24,7 +23,7 @@ func NewUserService(repo domain.UserRepository) *UserService {
 	}
 }
 
-func (s *UserService) RegisterUser(username string) (*domain.User, error) {
+func (s *UserService) RegisterUser(ctx context.Context, username string) (*domain.User, error) {
 
 	username = strings.TrimSpace(username)
 
@@ -33,11 +32,10 @@ func (s *UserService) RegisterUser(username string) (*domain.User, error) {
 	}
 
 	user := &domain.User{
-		ID:       uuid.NewString(),
 		Username: username,
 	}
 
-	err := s.repo.Create(user)
+	err := s.repo.Create(ctx, user)
 
 	if err != nil {
 		return nil, err
@@ -46,9 +44,9 @@ func (s *UserService) RegisterUser(username string) (*domain.User, error) {
 	return user, nil
 }
 
-func (s *UserService) List() ([]*domain.User, error) {
+func (s *UserService) List(ctx context.Context) ([]*domain.User, error) {
 
-	users, err := s.repo.List()
+	users, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, err
 	}

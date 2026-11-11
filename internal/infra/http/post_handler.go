@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,17 +15,17 @@ import (
 )
 
 type createPostRequest struct {
-	AuthorID string `json:"authorID"`
+	AuthorID int64  `json:"authorID"`
 	Text     string `json:"text"`
 }
 
 type likePostRequest struct {
-	UserID string `json:"userID"`
+	UserID int64 `json:"userID"`
 }
 
 type postResponse struct {
-	ID         string    `json:"id"`
-	AuthorID   string    `json:"authorID"`
+	ID         int64     `json:"id"`
+	AuthorID   int64     `json:"authorID"`
 	Text       string    `json:"text"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LikesCount int       `json:"likesCount"`
@@ -53,7 +54,7 @@ func (h *PostHandler) CreatePost(ctx *gin.Context) {
 		return
 	}
 
-	post, err := h.service.CreatePost(request.AuthorID, request.Text)
+	post, err := h.service.CreatePost(ctx.Request.Context(), request.AuthorID, request.Text)
 	if err != nil {
 		if errors.Is(err, app.ErrInvalidPost) {
 			ctx.JSON(http.StatusBadRequest, gin.H{
@@ -92,7 +93,7 @@ func (h *PostHandler) List(ctx *gin.Context) {
 
 	responses := make([]postResponse, 0)
 
-	posts, err := h.service.List()
+	posts, err := h.service.List(ctx.Request.Context())
 
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -107,7 +108,7 @@ func (h *PostHandler) List(ctx *gin.Context) {
 			AuthorID:   post.AuthorID,
 			Text:       post.Text,
 			CreatedAt:  post.CreatedAt,
-			LikesCount: len(post.Likes),
+			LikesCount: post.LikesCount,
 		})
 	}
 
@@ -115,16 +116,16 @@ func (h *PostHandler) List(ctx *gin.Context) {
 }
 
 func (h *PostHandler) GetPost(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 
-	if id == "" {
+	if err != nil || id <= 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid post id",
 		})
 		return
 	}
 
-	post, err := h.service.GetPost(id)
+	post, err := h.service.GetPost(ctx.Request.Context(), id)
 
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
@@ -144,7 +145,7 @@ func (h *PostHandler) GetPost(ctx *gin.Context) {
 		AuthorID:   post.AuthorID,
 		Text:       post.Text,
 		CreatedAt:  post.CreatedAt,
-		LikesCount: len(post.Likes),
+		LikesCount: post.LikesCount,
 	}
 
 	ctx.JSON(http.StatusOK, response)
@@ -152,8 +153,8 @@ func (h *PostHandler) GetPost(ctx *gin.Context) {
 
 func (h *PostHandler) LikePost(ctx *gin.Context) {
 
-	postID := ctx.Param("id")
-	if postID == "" {
+	postID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil || postID <= 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid post id",
 		})
