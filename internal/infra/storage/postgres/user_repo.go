@@ -46,6 +46,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 			return domain.ErrUsernameTaken
 		}
 
+		logDBError(ctx, "users.create", err)
 		return fmt.Errorf("create user: %w", err)
 	}
 
@@ -70,6 +71,8 @@ func (r *UserRepository) GetByID(ctx context.Context, id int64) (*domain.User, e
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrUserNotFound
 		}
+
+		logDBError(ctx, "users.get_by_id", err)
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 
@@ -85,6 +88,7 @@ func (r *UserRepository) List(ctx context.Context) ([]*domain.User, error) {
 
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
+		logDBError(ctx, "users.list", err)
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	defer rows.Close()
@@ -99,6 +103,7 @@ func (r *UserRepository) List(ctx context.Context) ([]*domain.User, error) {
 			&user.Username,
 			&user.CreatedAt,
 		); err != nil {
+			logDBError(ctx, "users.list.scan", err)
 			return nil, fmt.Errorf("scan users: %w", err)
 		}
 
@@ -106,6 +111,7 @@ func (r *UserRepository) List(ctx context.Context) ([]*domain.User, error) {
 	}
 
 	if err := rows.Err(); err != nil {
+		logDBError(ctx, "users.list.iterate", err)
 		return nil, fmt.Errorf("iterate users: %w", err)
 	}
 

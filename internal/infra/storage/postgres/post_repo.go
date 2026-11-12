@@ -25,6 +25,7 @@ func NewPostRepository(pool *pgxpool.Pool) *PostRepository {
 func (r *PostRepository) Create(ctx context.Context, post *domain.Post) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		logDBError(ctx, "posts.create.begin", err)
 		return fmt.Errorf("begin create post transaction: %w", err)
 	}
 	defer tx.Rollback(context.Background())
@@ -53,10 +54,12 @@ func (r *PostRepository) Create(ctx context.Context, post *domain.Post) error {
 		&createdAt,
 	)
 	if err != nil {
+		logDBError(ctx, "posts.create.query", err)
 		return fmt.Errorf("create post with author like: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
+		logDBError(ctx, "posts.create.commit", err)
 		return fmt.Errorf("commit create post transaction: %w", err)
 	}
 
@@ -100,7 +103,7 @@ func (r *PostRepository) GetByID(ctx context.Context, id int64) (*domain.Post, e
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrPostNotFound
 		}
-
+		logDBError(ctx, "posts.get_by_id", err)
 		return nil, fmt.Errorf("get post by id: %w", err)
 	}
 
@@ -124,6 +127,7 @@ func (r *PostRepository) List(ctx context.Context) ([]*domain.Post, error) {
 
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
+		logDBError(ctx, "posts.list", err)
 		return nil, fmt.Errorf("list posts: %w", err)
 	}
 	defer rows.Close()
@@ -140,6 +144,7 @@ func (r *PostRepository) List(ctx context.Context) ([]*domain.Post, error) {
 			&post.CreatedAt,
 			&post.LikesCount,
 		); err != nil {
+			logDBError(ctx, "posts.list.scan", err)
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
 
@@ -147,6 +152,7 @@ func (r *PostRepository) List(ctx context.Context) ([]*domain.Post, error) {
 	}
 
 	if err := rows.Err(); err != nil {
+		logDBError(ctx, "posts.list.iterate", err)
 		return nil, fmt.Errorf("iterate posts: %w", err)
 	}
 
@@ -173,6 +179,7 @@ func (r *PostRepository) LikePost(ctx context.Context, userID, postID int64) err
 				return domain.ErrUserNotFound
 			}
 		}
+		logDBError(ctx, "posts.like", err)
 		return fmt.Errorf("like post: %w", err)
 	}
 	return nil

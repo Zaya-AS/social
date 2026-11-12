@@ -9,14 +9,17 @@ import (
 )
 
 type Config struct {
-	HTTPPort             string
-	DatabaseURL          string
-	RedisAddr            string
-	RedisDB              int
-	RedisCacheTTL        time.Duration
-	QueueCapacity        int
-	WorkerCount          int
-	LikeExecutionTimeout time.Duration
+	HTTPPort              string
+	DatabaseURL           string
+	RedisAddr             string
+	RedisDB               int
+	RedisCacheTTL         time.Duration
+	QueueCapacity         int
+	WorkerCount           int
+	LikeExecutionTimeout  time.Duration
+	ConnectTimeout        time.Duration
+	HTTPShutdownTimeout   time.Duration
+	WorkerShutdownTimeout time.Duration
 }
 
 func Load() (Config, error) {
@@ -99,6 +102,39 @@ func Load() (Config, error) {
 	}
 
 	cfg.LikeExecutionTimeout = executionTimeout
+
+	connectTimeout, err := time.ParseDuration(
+		strings.TrimSpace(os.Getenv("CONNECT_TIMEOUT")),
+	)
+	if err != nil {
+		return Config{}, fmt.Errorf("CONNECT_TIMEOUT must be a valid duration: %w", err)
+	}
+	if connectTimeout <= 0 {
+		return Config{}, fmt.Errorf("CONNECT_TIMEOUT must be greater than zero")
+	}
+	cfg.ConnectTimeout = connectTimeout
+
+	httpShutdownTimeout, err := time.ParseDuration(
+		strings.TrimSpace(os.Getenv("HTTP_SHUTDOWN_TIMEOUT")),
+	)
+	if err != nil {
+		return Config{}, fmt.Errorf("HTTP_SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
+	}
+	if httpShutdownTimeout <= 0 {
+		return Config{}, fmt.Errorf("HTTP_SHUTDOWN_TIMEOUT must be greater than zero")
+	}
+	cfg.HTTPShutdownTimeout = httpShutdownTimeout
+
+	workerShutdownTimeout, err := time.ParseDuration(
+		strings.TrimSpace(os.Getenv("WORKER_SHUTDOWN_TIMEOUT")),
+	)
+	if err != nil {
+		return Config{}, fmt.Errorf("WORKER_SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
+	}
+	if workerShutdownTimeout <= 0 {
+		return Config{}, fmt.Errorf("WORKER_SHUTDOWN_TIMEOUT must be greater than zero")
+	}
+	cfg.WorkerShutdownTimeout = workerShutdownTimeout
 
 	return cfg, nil
 }

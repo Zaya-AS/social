@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
+	"gitlab.com/zayi-group/go-spirnt1/internal/infra/logging"
 )
 
 type LikeExecutor interface {
@@ -49,16 +50,22 @@ func (wp *WorkerPool) runWorker() {
 		if err != nil {
 			return
 		}
-		ctx, cancel := context.WithTimeout(
+
+		jobCtx := logging.WithRequestID(
 			context.Background(),
+			job.Command.RequestID,
+		)
+
+		ctx, cancel := context.WithTimeout(
+			jobCtx,
 			wp.executionTimeuot,
 		)
+
 		result := wp.executor.ApplyLike(ctx, job.Command)
 		cancel()
 
 		job.Result <- *result
 	}
-
 }
 
 func (wp *WorkerPool) Start() {

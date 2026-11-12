@@ -7,7 +7,8 @@ import (
 )
 
 func NewRouter(userHandler *UserHandler, postHandler *PostHandler) *gin.Engine {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(RequestLogger(), gin.Recovery())
 
 	router.GET("/ping", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{

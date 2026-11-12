@@ -4,31 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
+	"syscall"
 
 	"github.com/joho/godotenv"
 	"gitlab.com/zayi-group/go-spirnt1/internal/app"
 	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/config"
+	rediscache "gitlab.com/zayi-group/go-spirnt1/internal/infra/cache/redis"
 	httpapi "gitlab.com/zayi-group/go-spirnt1/internal/infra/http"
 	"gitlab.com/zayi-group/go-spirnt1/internal/infra/storage/postgres"
 	"gitlab.com/zayi-group/go-spirnt1/internal/queue/inmem"
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("application stopped", "error", err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
 
 	if err := godotenv.Load(); err != nil {
-		log.Printf("warning: .env was not loaded: %v", err)
+		slog.Warn("environment file was not loaded", "error", err)
 	}
 
 	cfg, err := config.Load()
@@ -39,7 +46,7 @@ func run() error {
 
 	connectCtx, cancelConn := context.WithTimeout(
 		context.Background(),
-		10*time.Second,
+		cfg.ConnectTimeout,
 	)
 
 	pool, err := postgres.NewPool(connectCtx, cfg.DatabaseURL)
@@ -50,12 +57,27 @@ func run() error {
 	}
 	defer pool.Close()
 
+	redisCtx, cancelRedis := context.WithTimeout(context.Background(), cfg.ConnectTimeout)
+	redisClient, err := rediscache.NewClient(redisCtx, cfg.RedisAddr, cfg.RedisDB)
+	cancelRedis()
+
+	if err != nil {
+		return fmt.Errorf("connect Redis: %w", err)
+	}
+
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			slog.Error("close Redis", "error", err)
+		}
+	}()
+
 	userRepo := postgres.NewUserRepository(pool)
 	userService := app.NewUserService(userRepo)
 	userHandler := httpapi.NewUserHandler(userService)
 
 	postRepo := postgres.NewPostRepository(pool)
-	postService := app.NewPostService(postRepo, userRepo)
+	postCache := rediscache.NewPostCache(redisClient, cfg.RedisCacheTTL)
+	postService := app.NewPostService(postRepo, userRepo, postCache)
 	likeQueue, err := inmem.NewQueue(cfg.QueueCapacity)
 	if err != nil {
 		return fmt.Errorf("create like queue: %w", err)
@@ -80,7 +102,7 @@ func run() error {
 		Handler: httpRouter,
 	}
 
-	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	serverErr := make(chan error, 1)
@@ -101,7 +123,7 @@ func run() error {
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(
 		context.Background(),
-		10*time.Second,
+		cfg.HTTPShutdownTimeout,
 	)
 	shutdownErr := server.Shutdown(shutdownCtx)
 	cancelShutdown()
@@ -119,7 +141,7 @@ func run() error {
 
 	workerCtx, cancelWorkers := context.WithTimeout(
 		context.Background(),
-		10*time.Second,
+		cfg.WorkerShutdownTimeout,
 	)
 	defer cancelWorkers()
 

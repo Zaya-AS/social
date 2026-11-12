@@ -12,6 +12,7 @@ import (
 	"gitlab.com/zayi-group/go-spirnt1/internal/app"
 	"gitlab.com/zayi-group/go-spirnt1/internal/app/likes"
 	"gitlab.com/zayi-group/go-spirnt1/internal/domain"
+	"gitlab.com/zayi-group/go-spirnt1/internal/infra/logging"
 )
 
 type createPostRequest struct {
@@ -174,6 +175,7 @@ func (h *PostHandler) LikePost(ctx *gin.Context) {
 		CommandID: uuid.NewString(),
 		PostID:    postID,
 		UserID:    request.UserID,
+		RequestID: logging.RequestID(ctx.Request.Context()),
 		CreatedAt: time.Now(),
 	}
 
